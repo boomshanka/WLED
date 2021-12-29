@@ -55,6 +55,7 @@ struct BusConfig {
     count = len; start = pstart; colorOrder = pcolorOrder; reversed = rev; skipAmount = skip;
     uint8_t nPins = 1;
     if (type >= TYPE_NET_DDP_RGB && type < 96) nPins = 4; //virtual network bus. 4 "pins" store IP address
+    else if (type >= TYPE_CONTROLL_SERVO_1CH) nPins = NUM_RADIO_PINS(type);
     else if (type > 47) nPins = 2;
     else if (type > 40 && type < 46) nPins = NUM_PWM_PINS(type);
     for (uint8_t i = 0; i < nPins; i++) pins[i] = ppins[i];
@@ -298,7 +299,7 @@ class BusPwm : public Bus {
     }
     reversed = bc.reversed;
     _valid = true;
-  };
+  }
 
   void setPixelColor(uint16_t pix, uint32_t c) {
     if (pix != 0 || !_valid) return; //only react to first pixel
@@ -521,6 +522,110 @@ class BusNetwork : public Bus {
     byte     *_data;
 };
 
+class BusRadioSignal : public Bus {
+  public:
+  BusRadioSignal(BusConfig &bc) : Bus(bc.type, bc.start) {
+    _valid = false;
+    if (!IS_NON_COLOR(bc.type)) return;
+    uint8_t numPins = NUM_RADIO_PINS(bc.type);
+    
+    #ifdef ESP8266
+    analogWriteRange(4096);  //16*255 steps=12bit (1 high, 1 value, 14 low, 1ms each -> 16ms cycle)
+    analogWriteFreq(WLED_RADIO_FREQ);
+    #else
+    _ledcStart = pinManager.allocateLedc(numPins); //todo: here we use different frequency. ledc uses pairs of channels with same timer so we have to use a channel that is not used by other LEDs yet
+    if (_ledcStart == 255) { //no more free LEDC channels
+      deallocatePins(); return;
+    }
+    #endif
+
+    for (uint8_t i = 0; i < numPins; i++) {
+      uint8_t currentPin = bc.pins[i];
+      if (!pinManager.allocatePin(currentPin, true, PinOwner::BusRadioSignal)) {
+        deallocatePins(); return;
+      }
+      _pins[i] = currentPin; // store only after allocatePin() succeeds
+      #ifdef ESP8266
+      pinMode(_pins[i], OUTPUT);
+      #else
+      ledcSetup(_ledcStart + i, WLED_RADIO_FREQ, 12); //12 bit resolution  for 16*1ms sections with 255 values each
+      ledcAttachPin(_pins[i], _ledcStart + i);
+      #endif
+    }
+    reversed = bc.reversed;
+    _valid = true;
+    Serial.println("Servo init: Done");
+  }
+
+  void setPixelColor(uint16_t pix, uint32_t c) {
+    if (!_valid) return;
+    if (NUM_RADIO_PINS(_type) <= pix) return; //check if pixel is in range
+	
+    _data[pix] = W(c); //set white channel as data value
+  }
+
+  //does no index check
+  uint32_t getPixelColor(uint16_t pix) {
+    if (!_valid) return 0;
+    return RGBW32(0, 0, 0, _data[pix]);
+  }
+
+  void show() {
+    if (!_valid) return;
+    uint8_t numPins = NUM_RADIO_PINS(_type);
+    for (uint8_t i = 0; i < numPins; i++) {
+      uint16_t scaled = (reversed ? 255-_data[i] : _data[i]) + 255;
+      #ifdef ESP8266
+      analogWrite(_pins[i], scaled);
+      #else
+      ledcWrite(_ledcStart + i, scaled);
+      #endif
+    }
+  }
+
+  uint8_t getPins(uint8_t* pinArray) {
+    if (!_valid) return 0;
+    uint8_t numPins = NUM_RADIO_PINS(_type);
+    for (uint8_t i = 0; i < numPins; i++) {
+      pinArray[i] = _pins[i];
+    }
+    return numPins;
+  }
+
+  inline void cleanup() {
+    deallocatePins();
+  }
+
+  ~BusRadioSignal() {
+    cleanup();
+  }
+
+  bool isRgbw() { return true; }
+
+  private:
+  uint8_t _pins[5] = {255, 255, 255, 255, 255};
+  uint8_t _data[5] = {255, 255, 255, 255, 255};
+  #ifdef ARDUINO_ARCH_ESP32
+  uint8_t _ledcStart = 255;
+  #endif
+
+  void deallocatePins() {
+    uint8_t numPins = NUM_RADIO_PINS(_type);
+    for (uint8_t i = 0; i < numPins; i++) {
+      pinManager.deallocatePin(_pins[i], PinOwner::BusPwm);
+      if (!pinManager.isPinOk(_pins[i])) continue;
+      #ifdef ESP8266
+      digitalWrite(_pins[i], LOW); //turn off PWM interrupt
+      #else
+      if (_ledcStart < 16) ledcDetachPin(_pins[i]);
+      #endif
+    }
+    #ifdef ARDUINO_ARCH_ESP32
+    pinManager.deallocateLedc(_ledcStart, numPins);
+    #endif
+  }
+};
+
 
 class BusManager {
   public:
@@ -554,6 +659,8 @@ class BusManager {
     if (numBusses >= WLED_MAX_BUSSES) return -1;
     if (bc.type >= TYPE_NET_DDP_RGB && bc.type < 96) {
       busses[numBusses] = new BusNetwork(bc);
+    } else if (IS_NON_COLOR(bc.type)) {
+      busses[numBusses] = new BusRadioSignal(bc);
     } else if (IS_DIGITAL(bc.type)) {
       busses[numBusses] = new BusDigital(bc, numBusses);
     } else {

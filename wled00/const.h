@@ -128,7 +128,7 @@
 //                                              - 0b100 (dec. 64-79) unused/reserved
 //                                              - 0b101 (dec. 80-95) virtual network busses
 //                                              - 0b110 (dec. 96-111) unused/reserved
-//                                              - 0b111 (dec. 112-127) unused/reserved
+//                                              - 0b111 (dec. 112-127) other non-color signals like radio signals
 //bit 7 is reserved and set to 0
 
 #define TYPE_NONE                 0            //light is not configured
@@ -157,11 +157,19 @@
 #define TYPE_NET_DDP_RGB         80            //network DDP RGB bus (master broadcast bus)
 #define TYPE_NET_E131_RGB        81            //network E131 RGB bus (master broadcast bus)
 #define TYPE_NET_ARTNET_RGB      82            //network ArtNet RGB bus (master broadcast bus)
+//Other signal types (like servos) (112-127)
+#define TYPE_CONTROLL_SERVO_1CH 112            //standard radio servo signal (1-2ms pulse every 20ms)
+#define TYPE_CONTROLL_SERVO_2CH 113            //standard radio servo signal 2 channel
+#define TYPE_CONTROLL_SERVO_3CH 114            //standard radio servo signal 3 channel
+#define TYPE_CONTROLL_SERVO_4CH 115            //standard radio servo signal 4 channel
 
 #define IS_DIGITAL(t) ((t) & 0x10) //digital are 16-31 and 48-63
 #define IS_PWM(t)     ((t) > 40 && (t) < 46)
 #define NUM_PWM_PINS(t) ((t) - 40) //for analog PWM 41-45 only
 #define IS_2PIN(t)      ((t) > 47)
+#define IS_NON_COLOR(t) ((t) >= 112 && (t) <= 127) //for non-color channels 112-127
+#define IS_RADIO_PWM(t) ((t) >= 112) //for special radio control PWM signal
+#define NUM_RADIO_PINS(t) ((t)-TYPE_CONTROLL_SERVO_1CH+1)
 
 //Color orders
 #define COL_ORDER_GRB             0           //GRB(w),defaut
@@ -293,6 +301,9 @@
   #define WLED_PWM_FREQ  19531
 #endif
 #endif
+
+// Radio PWM settings
+#define WLED_RADIO_FREQ 62.5 //16 ms cycle for 16 sections (1 high/sync, 1 value, 14 low)
 
 #define TOUCH_THRESHOLD 32 // limit to recognize a touch, higher value means more sensitive
 
