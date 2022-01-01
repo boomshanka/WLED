@@ -148,6 +148,7 @@
 #define TYPE_ANALOG_3CH          43            //analog RGB
 #define TYPE_ANALOG_4CH          44            //analog RGBW
 #define TYPE_ANALOG_5CH          45            //analog RGB + WW + CW
+#define TYPE_ANALOG_RC           47            //standard radio servo signal (1-2ms pulse every 20ms)
 //Digital types (data + clock / SPI) (48-63)
 #define TYPE_WS2801              50
 #define TYPE_APA102              51
@@ -158,18 +159,15 @@
 #define TYPE_NET_E131_RGB        81            //network E131 RGB bus (master broadcast bus)
 #define TYPE_NET_ARTNET_RGB      82            //network ArtNet RGB bus (master broadcast bus)
 //Other signal types (like servos) (112-127)
-#define TYPE_CONTROLL_SERVO_1CH 112            //standard radio servo signal (1-2ms pulse every 20ms)
-#define TYPE_CONTROLL_SERVO_2CH 113            //standard radio servo signal 2 channel
-#define TYPE_CONTROLL_SERVO_3CH 114            //standard radio servo signal 3 channel
-#define TYPE_CONTROLL_SERVO_4CH 115            //standard radio servo signal 4 channel
+#define TYPE_CONTROLL_SERVO     112            //standard radio servo signal (1-2ms pulse every 20ms)
+#define TYPE_CONTROLL_SERVO_16  113            //standard radio servo signal with double precision
 
-#define IS_DIGITAL(t) ((t) & 0x10) //digital are 16-31 and 48-63
-#define IS_PWM(t)     ((t) > 40 && (t) < 46)
+#define IS_DIGITAL(t)   ((t) & 0x10) //digital are 16-31 and 48-63
+#define IS_PWM(t)       ((t) > 40 && (t) < 46)
+#define IS_PWM_RC(t)    ((t) == TYPE_ANALOG_RC) //for special radio control PWM signal
 #define NUM_PWM_PINS(t) ((t) - 40) //for analog PWM 41-45 only
-#define IS_2PIN(t)      ((t) > 47)
-#define IS_NON_COLOR(t) ((t) >= 112 && (t) <= 127) //for non-color channels 112-127
-#define IS_RADIO_PWM(t) ((t) >= 112) //for special radio control PWM signal
-#define NUM_RADIO_PINS(t) ((t)-TYPE_CONTROLL_SERVO_1CH+1)
+#define IS_2PIN(t)      ((t) >= 48 && (t) <= 63)
+#define IS_RADIO_PWM(t) ((t) == 112 || (t) == 113) //for special radio control PWM signal
 
 //Color orders
 #define COL_ORDER_GRB             0           //GRB(w),defaut

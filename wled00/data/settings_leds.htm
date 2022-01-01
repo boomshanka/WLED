@@ -32,15 +32,22 @@
     function bLimits(b,p,m,l) {
       maxB = b; maxM = m; maxPB = p; maxL = l;
     }
+    function isNetworkBus(t) {
+      return (t>=80 && t<=95);
+    }
+    function isRadioPwm(t) {
+      return (t==47);
+    }
     function pinsOK() {
       var LCs = d.getElementsByTagName("input");
       for (i=0; i<LCs.length; i++) {
         var nm = LCs[i].name.substring(0,2);
-        // ignore IP address
+        // ignore IP address or range pins of RC bus
         if (nm=="L0" || nm=="L1" || nm=="L2" || nm=="L3") {
           var n = LCs[i].name.substring(2);
           var t = parseInt(d.getElementsByName("LT"+n)[0].value, 10); // LED type SELECT
-          if (t>=80) continue;
+          if (isNetworkBus(t)) continue;
+          if (isRadioPwm(t) && (nm=="L1" || nm=="L2")) continue;
         }
         //check for pin conflicts
         if (nm=="L0" || nm=="L1" || nm=="L2" || nm=="L3" || nm=="L4" || nm=="RL" || nm=="BT" || nm=="IR")
@@ -55,7 +62,7 @@
                 if (n2.substring(0,1)==="L") {
                   var m  = LCs[j].name.substring(2);
                   var t2 = parseInt(d.getElementsByName("LT"+m)[0].value, 10);
-                  if (t2>=80) continue;
+                  if (isNetworkBus(t2)) continue;
                 }
                 if (LCs[j].value!="" && LCs[i].value==LCs[j].value) {alert(`Pin conflict between ${LCs[i].name}/${LCs[j].name}!`);LCs[j].value="";LCs[j].focus();return false;}
               }
@@ -119,7 +126,7 @@
       }
       if (t > 31 && t < 48) return 5;
       if (t == 44 || t == 45) return len*4; //RGBW
-      if (t >= 112) return len; // TODO: Servo
+      if (isRadioPwm(t)) return 4; // TODO: Servo
       return len*3;
     }
 		function UI(change=false)
@@ -138,8 +145,9 @@
         if (s[i].name.substring(0,2)=="LT") {
           var n = s[i].name.substring(2);
           var t = parseInt(s[i].value,10);
-          gId("p0d"+n).innerHTML = (t>=80 && t<96) ? "IP address:" : (t >= 112) ? "Signal GPIO" : (t > 49) ? "Data GPIO:" : (t > 41) ? "GPIOs:" : "GPIO:";
-          gId("p1d"+n).innerHTML = (t> 49 && t<64) ? "Clk GPIO:" : "";
+          gId("p0d"+n).innerHTML = (isNetworkBus(t)) ? "IP address:" : (isRadioPwm(t)) ? "Signal GPIO:" : (t > 49) ? "Data GPIO:" : (t > 41) ? "GPIOs:" : "GPIO:";
+          gId("p1d"+n).innerHTML = (t> 49 && t<64) ? "Clk GPIO:" : (isRadioPwm(t)) ? "Range Min [ms]:" : "";
+          gId("p2d"+n).innerHTML = (isRadioPwm(t)) ? "Range Max [ms]:" : "";
           var LK = d.getElementsByName("L1"+n)[0]; // clock pin
 
           memu += getMem(t, d.getElementsByName("LC"+n)[0].value, d.getElementsByName("L0"+n)[0].value); // calc memory
@@ -148,7 +156,7 @@
           for (p=1; p<5; p++) {
             var LK = d.getElementsByName("L"+p+n)[0]; // secondary pins
             if (!LK) continue;
-            if (((t>=80 && t<96) && p<4) || (t>49 && p==1) || (t>41 && t < 50 && (p+40 < t)) || (t >= 112 && p<1)) // TYPE_xxxx values from const.h
+            if (((isNetworkBus(t)) && p<4) || (t>49 && p==1) || (t>41 && t < 50 && (p+40 < t)) || (isRadioPwm(t) && p<3)) // TYPE_xxxx values from const.h
             {
               // display pin field
               LK.style.display = "inline";
@@ -166,13 +174,13 @@
           }
           gId("rf"+n).onclick = (t == 31) ? (function(){return false}) : (function(){});  // prevent change for TM1814
           isRGBW |= (t == 30 || t == 31 || (t > 40 && t < 46 && t != 43)); // RGBW checkbox, TYPE_xxxx values from const.h
-          gId("co"+n).style.display = ((t>=80 && t<96) || t == 41 || t == 42 || t >= 112) ? "none":"inline";  // hide color order for PWM W & WW/CW and control channels
-          gId("dig"+n+"c").style.display = (t > 40 && t < 48) ? "none":"inline";  // hide count for analog
-          gId("dig"+n+"r").style.display = (t>=80 && t<96) ? "none":"inline";  // hide reversed for virtual
-          gId("dig"+n+"s").style.display = ((t>=80 && t<96) || (t > 40 && t < 48) || t >= 112) ? "none":"inline";  // hide skip 1st for virtual & analog and control channels
+          gId("co"+n).style.display = ((isNetworkBus(t)) || t == 41 || t == 42 || isRadioPwm(t)) ? "none":"inline";  // hide color order for PWM W & WW/CW and RC channels
+          gId("dig"+n+"c").style.display = ((t > 40 && t < 48) || isRadioPwm(t)) ? "none":"inline";  // hide count for analog and RC channels
+          gId("dig"+n+"r").style.display = (isNetworkBus(t)) ? "none":"inline";  // hide reversed for virtual
+          gId("dig"+n+"s").style.display = ((isNetworkBus(t)) || (t > 40 && t < 48) || isRadioPwm(t)) ? "none":"inline";  // hide skip 1st for virtual & analog and RC channels
           gId("dig"+n+"f").style.display = (t>=16 && t<32 || t>=50 && t<64) ? "inline":"none";  // hide refresh
-          gId("rev"+n).innerHTML = (t > 40 && t < 48) ? "Inverted output":"Reversed (rotated 180°)";  // change reverse text for analog
-          gId("psd"+n).innerHTML = (t > 40 && t < 48) ? "Index:":"Start:";    // change analog start description
+          gId("rev"+n).innerHTML = ((t > 40 && t < 48) || isRadioPwm(t)) ? "Inverted output":"Reversed (rotated 180°)";  // change reverse text for analog and RC channels
+          gId("psd"+n).innerHTML = ((t > 40 && t < 48) || isRadioPwm(t)) ? "Index:":"Start:";    // change analog and RC channels start description
         }
       }
       // display white channel calculation method
@@ -197,7 +205,7 @@
             if (s+c > sLC) sLC = s+c;
             if(c>maxLC)maxLC=c;
             var t = parseInt(d.getElementsByName("LT"+n)[0].value); // LED type SELECT
-            if (t<80) sPC+=c; //virtual out busses do not count towards physical LEDs
+            if (t<80) sPC+=c; //virtual out busses do not count towards physical LEDs. Controler pins neither?
           } // increase led count
           continue;
         }
@@ -206,12 +214,17 @@
           var lc=d.getElementsByName("LC"+n)[0];
           lc.max=maxPB; // update max led count value
         }
-        // ignore IP address (stored in pins for virtual busses)
+        // ignore IP address (stored in pins for virtual busses) and min/max values for RC controllers
         if (nm=="L0" || nm=="L1" || nm=="L2" || nm=="L3") {
           var t = parseInt(d.getElementsByName("LT"+n)[0].value); // LED type SELECT
-          if (t>=80) {
+          if (isNetworkBus(t)) {
             LCs[i].max = 255;
             LCs[i].min = 0;
+            LCs[i].style.color="#fff";
+            continue; // do not check conflicts
+          } else if (isRadioPwm(t) && (nm=="L1" || nm=="L2")) { // Field 2 & 3 contain min/max values for RC signals
+            LCs[i].max = 250;
+            LCs[i].min = 50;
             LCs[i].style.color="#fff";
             continue; // do not check conflicts
           } else {
@@ -231,7 +244,7 @@
                 if (n2.substring(0,1)==="L") {
                   var m  = LCs[j].name.substring(2);
                   var t2 = parseInt(d.getElementsByName("LT"+m)[0].value, 10);
-                  if (t2>=80) continue;
+                  if (isNetworkBus(t)) continue;
                 }
                 if (LCs[j].value!="" && LCs[j].value!="-1") p.push(parseInt(LCs[j].value,10));  // add current pin
               }
@@ -311,10 +324,10 @@ ${i+1}:
 <option value="44">PWM RGBW</option>
 <option value="45">PWM RGB+CCT</option>
 <!--option value="46">PWM RGB+DCCT</option-->
+<option value="47">PWM RC Signal</option>
 <option value="80">DDP RGB (network)</option>
 <!--option value="81">E1.31 RGB (network)</option-->
 <!--option value="82">ArtNet RGB (network)</option-->
-<option value="112">Radio Servo</option>
 </select>&nbsp;
 <div id="co${i}" style="display:inline">Color Order:
 <select name="CO${i}">

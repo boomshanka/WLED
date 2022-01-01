@@ -34,7 +34,7 @@ enum struct PinOwner : uint8_t {
   DebugOut      = 0x89,   // 'Dbg'  == debug output always IO1
   DMX           = 0x8A,   // 'DMX'  == hard-coded to IO2
   HW_I2C        = 0x8B,   // 'I2C'  == hardware I2C pins (4&5 on ESP8266, 21&22 on ESP32)
-  BusRadioSignal = 0x8C,  // 'Radio' == PWM output using BusRadioSignal
+  BusPwmRC      = 0x8C,   // 'Radio' == PWM output using BusPwmRC
   // Use UserMod IDs from const.h here
   UM_Unspecified       = USERMOD_ID_UNSPECIFIED,        // 0x01
   UM_Example           = USERMOD_ID_EXAMPLE,            // 0x02 // Usermod "usermod_v2_example.h"

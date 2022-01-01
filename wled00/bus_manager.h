@@ -55,7 +55,7 @@ struct BusConfig {
     count = len; start = pstart; colorOrder = pcolorOrder; reversed = rev; skipAmount = skip;
     uint8_t nPins = 1;
     if (type >= TYPE_NET_DDP_RGB && type < 96) nPins = 4; //virtual network bus. 4 "pins" store IP address
-    else if (type >= TYPE_CONTROLL_SERVO_1CH) nPins = NUM_RADIO_PINS(type);
+    else if (type >= TYPE_CONTROLL_SERVO || TYPE_CONTROLL_SERVO_16) nPins = 1; //One pin + min and max value
     else if (type > 47) nPins = 2;
     else if (type > 40 && type < 46) nPins = NUM_PWM_PINS(type);
     for (uint8_t i = 0; i < nPins; i++) pins[i] = ppins[i];
@@ -522,106 +522,102 @@ class BusNetwork : public Bus {
     byte     *_data;
 };
 
-class BusRadioSignal : public Bus {
+class BusPwmRC : public Bus {
   public:
-  BusRadioSignal(BusConfig &bc) : Bus(bc.type, bc.start) {
+  BusPwmRC(BusConfig &bc) : Bus(bc.type, bc.start) {
     _valid = false;
-    if (!IS_NON_COLOR(bc.type)) return;
-    uint8_t numPins = NUM_RADIO_PINS(bc.type);
+    if (!IS_RADIO_PWM(bc.type)) return;
     
     #ifdef ESP8266
     analogWriteRange(4096);  //16*255 steps=12bit (1 high, 1 value, 14 low, 1ms each -> 16ms cycle)
     analogWriteFreq(WLED_RADIO_FREQ);
     #else
-    _ledcStart = pinManager.allocateLedc(numPins); //todo: here we use different frequency. ledc uses pairs of channels with same timer so we have to use a channel that is not used by other LEDs yet
+    _ledcStart = pinManager.allocateLedc(1); //todo: here we use different frequency. ledc uses pairs of channels with same timer so we have to use a channel that is not used by other LEDs yet
     if (_ledcStart == 255) { //no more free LEDC channels
       deallocatePins(); return;
     }
     #endif
 
-    for (uint8_t i = 0; i < numPins; i++) {
-      uint8_t currentPin = bc.pins[i];
-      if (!pinManager.allocatePin(currentPin, true, PinOwner::BusRadioSignal)) {
-        deallocatePins(); return;
-      }
-      _pins[i] = currentPin; // store only after allocatePin() succeeds
-      #ifdef ESP8266
-      pinMode(_pins[i], OUTPUT);
-      #else
-      ledcSetup(_ledcStart + i, WLED_RADIO_FREQ, 12); //12 bit resolution  for 16*1ms sections with 255 values each
-      ledcAttachPin(_pins[i], _ledcStart + i);
-      #endif
+    if (!pinManager.allocatePin(bc.pins[0], true, PinOwner::BusPwmRC)) {
+      deallocatePins(); return;
     }
+    _pin = bc.pins[0]; // store only after allocatePin() succeeds
+    _valueMin = bc.pins[1];
+    _valueMax = bc.pins[2];
+    #ifdef ESP8266
+    pinMode(_pin, OUTPUT);
+    #else
+    ledcSetup(_ledcStart, WLED_RADIO_FREQ, 12); //12 bit resolution  for 16*1ms sections with 255 values each
+    ledcAttachPin(_pin, _ledcStart);
+    #endif
+    
     reversed = bc.reversed;
     _valid = true;
-    Serial.println("Servo init: Done");
+    Serial.printf("Servo init: %d, %d, %d", bc.pins[0], bc.pins[1], bc.pins[2]);
   }
 
   void setPixelColor(uint16_t pix, uint32_t c) {
     if (!_valid) return;
-    if (NUM_RADIO_PINS(_type) <= pix) return; //check if pixel is in range
+    if (pix != 0) return; //check if pixel is in range
 	
-    _data[pix] = W(c); //set white channel as data value
+    _data = R(c); //use red channel as data value
+    //Serial.printf("Servo at %d\n", R(c));
   }
 
   //does no index check
   uint32_t getPixelColor(uint16_t pix) {
     if (!_valid) return 0;
-    return RGBW32(0, 0, 0, _data[pix]);
+    return RGBW32(_data, 0, 0, 0);
   }
 
   void show() {
     if (!_valid) return;
-    uint8_t numPins = NUM_RADIO_PINS(_type);
-    for (uint8_t i = 0; i < numPins; i++) {
-      uint16_t scaled = (reversed ? 255-_data[i] : _data[i]) + 255;
-      #ifdef ESP8266
-      analogWrite(_pins[i], scaled);
-      #else
-      ledcWrite(_ledcStart + i, scaled);
-      #endif
-    }
+    uint16_t scaled = (reversed ? 255-_data : _data) + 255;
+    #ifdef ESP8266
+    analogWrite(_pin, scaled);
+    #else
+    ledcWrite(_ledcStart, scaled);
+    #endif
   }
 
   uint8_t getPins(uint8_t* pinArray) {
     if (!_valid) return 0;
-    uint8_t numPins = NUM_RADIO_PINS(_type);
-    for (uint8_t i = 0; i < numPins; i++) {
-      pinArray[i] = _pins[i];
-    }
-    return numPins;
+    pinArray[0] = _pin;
+    pinArray[1] = _valueMin;
+    pinArray[2] = _valueMax;
+    return 3;
   }
 
   inline void cleanup() {
     deallocatePins();
   }
 
-  ~BusRadioSignal() {
+  ~BusPwmRC() {
     cleanup();
   }
 
-  bool isRgbw() { return true; }
+  bool isRgbw() { return false; }
 
   private:
-  uint8_t _pins[5] = {255, 255, 255, 255, 255};
-  uint8_t _data[5] = {255, 255, 255, 255, 255};
+  uint8_t _pin = 255;
+  uint8_t _data = 255;
+  uint8_t _valueMin = 100;
+  uint8_t _valueMax = 200;
   #ifdef ARDUINO_ARCH_ESP32
   uint8_t _ledcStart = 255;
   #endif
 
   void deallocatePins() {
-    uint8_t numPins = NUM_RADIO_PINS(_type);
-    for (uint8_t i = 0; i < numPins; i++) {
-      pinManager.deallocatePin(_pins[i], PinOwner::BusPwm);
-      if (!pinManager.isPinOk(_pins[i])) continue;
-      #ifdef ESP8266
-      digitalWrite(_pins[i], LOW); //turn off PWM interrupt
-      #else
-      if (_ledcStart < 16) ledcDetachPin(_pins[i]);
-      #endif
-    }
+    pinManager.deallocatePin(_pin, PinOwner::BusPwm);
+    if (!pinManager.isPinOk(_pin)) return;
+    #ifdef ESP8266
+    digitalWrite(_pin, LOW); //turn off PWM interrupt
+    #else
+    if (_ledcStart < 16) ledcDetachPin(_pin);
+    #endif
+    
     #ifdef ARDUINO_ARCH_ESP32
-    pinManager.deallocateLedc(_ledcStart, numPins);
+    pinManager.deallocateLedc(_ledcStart, 1);
     #endif
   }
 };
@@ -659,10 +655,10 @@ class BusManager {
     if (numBusses >= WLED_MAX_BUSSES) return -1;
     if (bc.type >= TYPE_NET_DDP_RGB && bc.type < 96) {
       busses[numBusses] = new BusNetwork(bc);
-    } else if (IS_NON_COLOR(bc.type)) {
-      busses[numBusses] = new BusRadioSignal(bc);
     } else if (IS_DIGITAL(bc.type)) {
       busses[numBusses] = new BusDigital(bc, numBusses);
+    } else if (IS_PWM_RC(bc.type)) {
+      busses[numBusses] = new BusPwmRC(bc);
     } else {
       busses[numBusses] = new BusPwm(bc);
     }
